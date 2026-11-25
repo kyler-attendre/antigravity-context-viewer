@@ -4117,9 +4117,47 @@
     return !el('panel').hidden || !el('panel-tokens').hidden || Boolean(el('panel-quota') && !el('panel-quota').hidden);
   }
 
-  function showPanel(target) {
+  function closeHostSettingsModalIfOpen() {
+    if (typeof document?.querySelector !== 'function') return false;
+    try {
+      const dlg = document.querySelector('.settings-modal-container, [role="dialog"]');
+      if (!dlg || dlg.closest?.('#ag-context-meter, #ag-context-meter-radial-host')) return false;
+      const closeBtn = dlg.querySelector?.('button[aria-label*="close" i], button[aria-label*="关闭" i], button[aria-label*="關閉" i], button[data-testid*="close" i], button:has(svg.lucide-x)');
+      if (closeBtn && typeof closeBtn.click === 'function') {
+        closeBtn.click();
+      } else {
+        const esc = new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, which: 27, bubbles: true, cancelable: true });
+        dlg.dispatchEvent?.(esc);
+        document.dispatchEvent?.(esc);
+        window.dispatchEvent?.(esc);
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function runAfterClosingHostSettings(fn) {
+    const hadModal = closeHostSettingsModalIfOpen();
+    if (hadModal) {
+      setTimeout(() => {
+        if (!state.disposed) fn();
+      }, 80);
+    } else {
+      fn();
+    }
+  }
+
+  function showPanel(target, showOpts = {}) {
     if (target !== 'none' && enforceMarketplaceAvoidance()) {
       target = 'none';
+    }
+    // 打开顶栏浮层时，若宿主设置弹窗正处于打开状态则先关闭并延迟打开，避免 Radix pointer-events 拦截与层级重叠（最多延迟一次，防止死循环）
+    if (target !== 'none' && !showOpts._afterModalClose && closeHostSettingsModalIfOpen()) {
+      setTimeout(() => {
+        if (!state.disposed) showPanel(target, { ...showOpts, _afterModalClose: true });
+      }, 80);
+      return;
     }
     // PR #83：切页或收起额度看板时立即取消待恢复任务，与 #81 切页滚动记忆互不干扰
     if (target !== 'quota' && typeof cancelQuotaScrollRestore === 'function') {
@@ -11709,6 +11747,10 @@
       if (isContextSettingsView || activeContextTab === 'settings') {
         switchContextTab(prevTabBeforeSettings || 'session');
       }
+      // 互斥收起顶栏浮层，避免与嵌入宿主设置弹窗重叠导致双方无法点击
+      try {
+        if (isAnyPanelOpen()) showPanel('none');
+      } catch { }
       if (opts.openColors) {
         hostSettingsCtrl?.openColorsDrawer?.();
       }
@@ -20681,6 +20723,11 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
   if (typeof createHostSettingsController === 'function') {
     hostSettingsCtrl = createHostSettingsController({
       t,
+      onHostModalMounted: () => {
+        try {
+          if (isAnyPanelOpen()) showPanel('none');
+        } catch { }
+      },
       getSnapshot: () => {
         const strict = recomputeStrictUpdateState();
         return {
@@ -21083,9 +21130,9 @@ speedPkSelection = speedPkSelection.filter(v => v !== id);
         else if (actionName === 'restartHost') openClientRestartConfirmFlow();
         else if (actionName === 'verifyRuntime') void verifyHotReloadAndRefreshQuota();
         else if (actionName === 'openReleasePage') openGithubRepo(cachedLatestRelease?.tagName ? `/releases/tag/${cachedLatestRelease.tagName}` : '/releases');
-        else if (actionName === 'openAccountsTab') openPluginAccountsTab();
-        else if (actionName === 'openQuotaBoard') showPanel('quota');
-        else if (actionName === 'openTokensBoard') showPanel('tokens');
+        else if (actionName === 'openAccountsTab') runAfterClosingHostSettings(() => openPluginAccountsTab());
+        else if (actionName === 'openQuotaBoard') runAfterClosingHostSettings(() => showPanel('quota'));
+        else if (actionName === 'openTokensBoard') runAfterClosingHostSettings(() => showPanel('tokens'));
         else if (actionName === 'openRight') void openDashboardInRightPanel();
         else if (actionName === 'openPage') { setPanelDockMode('page', { persist: true }); syncHostSettingsUi(); }
         else if (actionName === 'copyUrl') {

@@ -984,6 +984,9 @@ function createHostSettingsController(deps = {}) {
       || contentPane !== activeContentPane
       || activeContentPane?.isConnected === false;
     if (modalChanged) {
+      try {
+        if (typeof options.onHostModalMounted === 'function') options.onHostModalMounted(modal);
+      } catch { }
       if (activeModal && activeModal !== modal) {
         deactivateHostPage();
         savedPageScrollTop = 0;
